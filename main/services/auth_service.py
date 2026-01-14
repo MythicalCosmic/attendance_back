@@ -34,7 +34,6 @@ class AuthService:
                 .only('id', 'email', 'password', 'is_active', 'first_name', 'last_name', 'middle_name')
                 .first()
             )
-            print(user.password, password)
             
             if not user:
                 return cls._error_response('Invalid credentials')
@@ -44,9 +43,8 @@ class AuthService:
             
             if not check_password(password, user.password):
                 return cls._error_response('Invalid credentials')
-            
-            Session.objects.filter(user=user).delete()
-            cls._clear_user_cache(user.id)
+
+            cls._clear_user_sessions_only(user.id)
             
             token = cls._generate_token(user)
             token_hash = cls._hash_token(token)
@@ -65,7 +63,9 @@ class AuthService:
             )
 
             permissions = cls._get_user_permissions(user)
+            
             cls._cache_user_session(user.id, token_hash, permissions)
+            cls._cache_user(user)
             
             return {
                 'success': True,
@@ -84,18 +84,15 @@ class AuthService:
             
             user_id = cls._get_user_id_from_cache(token_hash)
             
-            if user_id:
-                Session.objects.filter(user_id=user_id).delete()
-                cls._clear_user_cache(user_id)
-                return {'success': True, 'message': 'Logged out successfully'}
+            if not user_id:
+                payload = cls._decode_token(token)
+                if payload:
+                    user_id = payload.get('user_id')
+            cls._invalidate_session_cache(token_hash)
+
+            Session.objects.filter(token_hash=token_hash).delete()
             
-            payload = cls._decode_token(token)
-            if payload:
-                Session.objects.filter(user_id=payload['user_id']).delete()
-                cls._clear_user_cache(payload['user_id'])
-                return {'success': True, 'message': 'Logged out successfully'}
-            
-            return {'success': True, 'message': 'Already logged out'}
+            return {'success': True, 'message': 'Logged out successfully'}
             
         except Exception as e:
             return cls._error_response(f'Logout failed: {str(e)}')
@@ -145,13 +142,15 @@ class AuthService:
         
         try:
             token_hash = cls._hash_token(token)
+            
             cached = cls._get_cached_session(token_hash)
             if cached:
                 return cached['user'], cached['permissions']
+            
             payload = cls._decode_token(token)
             if not payload:
                 return None, None
-        
+
             session = (
                 Session.objects
                 .filter(token_hash=token_hash, expires_at__gt=datetime.now())
@@ -159,12 +158,19 @@ class AuthService:
                 .first()
             )
             
-            if not session or not session.user.is_active or session.user.is_deleted:
+            if not session:
                 return None, None
-            permissions = cls._load_permissions_from_db(session.user.id)
-            cls._cache_user_session(session.user.id, token_hash, permissions)
             
-            return session.user, permissions
+            user = session.user
+            
+            if not user.is_active or user.is_deleted:
+                return None, None
+
+            permissions = cls._load_permissions_from_db(user.id)
+            cls._cache_user_session(user.id, token_hash, permissions)
+            cls._cache_user(user)
+            
+            return user, permissions
             
         except Exception:
             return None, None
@@ -187,6 +193,23 @@ class AuthService:
         if not permissions:
             return False
         return set(permission_codenames).issubset(set(permissions))
+    
+    @classmethod
+    def check_group_access(cls, user_id: int, group_id: int) -> bool:
+        cache_key = f"auth:group_access:{user_id}:{group_id}"
+        
+        result = cache.get(cache_key)
+        if result is not None:
+            return result
+        
+        from ..models import UserGroupAccess
+        has_access = UserGroupAccess.objects.filter(
+            user_id=user_id,
+            group_id=group_id
+        ).exists()
+        
+        cache.set(cache_key, has_access, cls.SESSION_CACHE_TTL)
+        return has_access
     
     @classmethod
     def _generate_token(cls, user: User) -> str:
@@ -214,6 +237,10 @@ class AuthService:
         return f"auth:session:{token_hash}"
     
     @classmethod
+    def _cache_key_user(cls, user_id: int) -> str:
+        return f"auth:user:{user_id}"
+    
+    @classmethod
     def _cache_key_permissions(cls, user_id: int) -> str:
         return f"auth:permissions:{user_id}"
     
@@ -224,6 +251,11 @@ class AuthService:
             'user_id': user_id,
             'permissions': permissions
         }, cls.SESSION_CACHE_TTL)
+    
+    @classmethod
+    def _cache_user(cls, user: User):
+        cache_key = cls._cache_key_user(user.id)
+        cache.set(cache_key, user, cls.USER_CACHE_TTL)
     
     @classmethod
     def _get_cached_session(cls, token_hash: str) -> dict | None:
@@ -244,14 +276,13 @@ class AuthService:
     
     @classmethod
     def _get_cached_user(cls, user_id: int) -> User | None:
-        cache_key = f"auth:user:{user_id}"
+        cache_key = cls._cache_key_user(user_id)
         user = cache.get(cache_key)
         
-        if not user:
+        if user is None:
             user = (
                 User.objects
                 .filter(id=user_id, is_deleted=False, is_active=True)
-                .only('id', 'email', 'first_name', 'last_name', 'middle_name', 'is_active')
                 .first()
             )
             if user:
@@ -271,8 +302,17 @@ class AuthService:
     
     @classmethod
     def _clear_user_cache(cls, user_id: int):
-        cache.delete(f"auth:user:{user_id}")
+        cache.delete(cls._cache_key_user(user_id))
         cache.delete(cls._cache_key_permissions(user_id))
+    
+    @classmethod
+    def _clear_user_sessions_only(cls, user_id: int):
+        sessions = Session.objects.filter(user_id=user_id).values_list('token_hash', flat=True)
+        
+        for token_hash in sessions:
+            cls._invalidate_session_cache(token_hash)
+        
+        Session.objects.filter(user_id=user_id).delete()
     
     @classmethod
     def _get_user_permissions(cls, user: User) -> list:
