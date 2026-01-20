@@ -1,3 +1,5 @@
+# admin_panel/views/user_views.py
+
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from base.helpers.response import APIResponse
@@ -10,15 +12,18 @@ from admins.services.user_service import UserService
 @require_http_methods(["GET"])
 @permission_required('user.view')
 def user_list(request):
-    page = int(request.GET.get('page', 1))
-    per_page = int(request.GET.get('per_page', 20))
+    try:
+        page = int(request.GET.get('page', 1))
+        per_page = min(int(request.GET.get('per_page', 20)), 100)  
+    except ValueError:
+        page, per_page = 1, 20
+    
     search = request.GET.get('search')
     role_id = request.GET.get('role_id')
     is_active = request.GET.get('is_active')
     order_by = request.GET.get('order_by', '-created_at')
     if is_active is not None:
         is_active = is_active.lower() in ('true', '1', 'yes')
-    
     if role_id:
         try:
             role_id = int(role_id)
@@ -65,20 +70,26 @@ def user_create(request):
     errors = validate_required(data, ['email', 'password', 'first_name', 'last_name'])
     if errors:
         return APIResponse.validation_error(errors=errors)
-    if len(data['password']) < 6:
+    password = str(data['password'])
+    if len(password) < 6:
         return APIResponse.validation_error(
             errors={'password': 'Password must be at least 6 characters'}
         )
+    email = str(data['email']).strip()
+    if '@' not in email or '.' not in email:
+        return APIResponse.validation_error(
+            errors={'email': 'Invalid email format'}
+        )
     
     result = UserService.create(
-        email=data['email'],
-        password=data['password'],
-        first_name=data['first_name'],
-        last_name=data['last_name'],
-        middle_name=data.get('middle_name'),
+        email=email,
+        password=password,
+        first_name=str(data['first_name']).strip(),
+        last_name=str(data['last_name']).strip(),
+        middle_name=str(data['middle_name']).strip() if data.get('middle_name') else None,
         role_ids=data.get('role_ids', []),
         group_ids=data.get('group_ids', []),
-        is_active=data.get('is_active', True)
+        is_active=bool(data.get('is_active', True))
     )
     
     if not result['success']:
@@ -94,15 +105,24 @@ def user_update(request, user_id):
     data, error = parse_body(request)
     if error:
         return error
+    update_data = {}
     
-    result = UserService.update(
-        user_id=user_id,
-        email=data.get('email'),
-        first_name=data.get('first_name'),
-        last_name=data.get('last_name'),
-        middle_name=data.get('middle_name'),
-        is_active=data.get('is_active')
-    )
+    if 'email' in data and data['email']:
+        update_data['email'] = str(data['email']).strip()
+    
+    if 'first_name' in data and data['first_name']:
+        update_data['first_name'] = str(data['first_name']).strip()
+    
+    if 'last_name' in data and data['last_name']:
+        update_data['last_name'] = str(data['last_name']).strip()
+    
+    if 'middle_name' in data:
+        update_data['middle_name'] = str(data['middle_name']).strip() if data['middle_name'] else None
+    
+    if 'is_active' in data:
+        update_data['is_active'] = bool(data['is_active'])
+    
+    result = UserService.update(user_id=user_id, **update_data)
     
     if not result['success']:
         if 'not found' in result['message'].lower():
@@ -124,12 +144,13 @@ def user_update_password(request, user_id):
     if errors:
         return APIResponse.validation_error(errors=errors)
     
-    if len(data['password']) < 6:
+    password = str(data['password'])
+    if len(password) < 6:
         return APIResponse.validation_error(
             errors={'password': 'Password must be at least 6 characters'}
         )
     
-    result = UserService.update_password(user_id, data['password'])
+    result = UserService.update_password(user_id, password)
     
     if not result['success']:
         if 'not found' in result['message'].lower():
@@ -152,6 +173,12 @@ def user_update_roles(request, user_id):
     if not isinstance(role_ids, list):
         return APIResponse.validation_error(
             errors={'role_ids': 'role_ids must be a list'}
+        )
+    try:
+        role_ids = [int(rid) for rid in role_ids]
+    except (ValueError, TypeError):
+        return APIResponse.validation_error(
+            errors={'role_ids': 'role_ids must contain valid integers'}
         )
     
     result = UserService.update_roles(user_id, role_ids)
@@ -177,6 +204,12 @@ def user_update_groups(request, user_id):
     if not isinstance(group_ids, list):
         return APIResponse.validation_error(
             errors={'group_ids': 'group_ids must be a list'}
+        )
+    try:
+        group_ids = [int(gid) for gid in group_ids]
+    except (ValueError, TypeError):
+        return APIResponse.validation_error(
+            errors={'group_ids': 'group_ids must contain valid integers'}
         )
     
     result = UserService.update_group_access(user_id, group_ids)
@@ -211,7 +244,6 @@ def user_delete(request, user_id):
 @permission_required('user.edit')
 def user_restore(request, user_id):
     result = UserService.restore(user_id)
-    
     if not result['success']:
         if 'not found' in result['message'].lower():
             return APIResponse.not_found(message=result['message'])

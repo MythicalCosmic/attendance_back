@@ -1,5 +1,5 @@
 from django.urls import path
-from admins.views import user_views, role_views, student_views, group_views, teacher_views
+from admins.views import user_views, role_views, student_views, group_views, teachers_views
 
 
 
@@ -53,17 +53,17 @@ urlpatterns = [
     path('groups/<int:group_id>/delete', group_views.group_delete, name='group-delete'),
     path('groups/<int:group_id>/students', student_views.students_by_group, name='students-by-group'),
 
-    path('teachers', teacher_views.teacher_list, name='teacher-list'),
-    path('teachers/active', teacher_views.teacher_active_list, name='teacher-active-list'),
-    path('teachers/stats', teacher_views.teacher_stats, name='teacher-stats'),
-    path('teachers/available-for-group/<int:group_id>', teacher_views.teacher_available_for_group, name='teacher-available-for-group'),
-    path('teachers/<int:teacher_id>', teacher_views.teacher_detail, name='teacher-detail'),
-    path('teachers/create', teacher_views.teacher_create, name='teacher-create'),
-    path('teachers/<int:teacher_id>/update', teacher_views.teacher_update, name='teacher-update'),
-    path('teachers/<int:teacher_id>/password', teacher_views.teacher_update_password, name='teacher-update-password'),
-    path('teachers/<int:teacher_id>/groups', teacher_views.teacher_update_groups, name='teacher-update-groups'),
-    path('teachers/<int:teacher_id>/groups/<int:group_id>/add', teacher_views.teacher_add_to_group, name='teacher-add-to-group'),
-    path('teachers/<int:teacher_id>/groups/<int:group_id>/remove', teacher_views.teacher_remove_from_group, name='teacher-remove-from-group'),
-    path('teachers/<int:teacher_id>/delete', teacher_views.teacher_delete, name='teacher-delete'),
-    path('teachers/<int:teacher_id>/restore', teacher_views.teacher_restore, name='teacher-restore'),
+    path('teachers', teachers_views.teacher_list, name='teacher-list'),
+    path('teachers/active', teachers_views.teacher_active_list, name='teacher-active-list'),
+    path('teachers/stats', teachers_views.teacher_stats, name='teacher-stats'),
+    path('teachers/available-for-group/<int:group_id>', teachers_views.teacher_available_for_group, name='teacher-available-for-group'),
+    path('teachers/<int:teacher_id>', teachers_views.teacher_detail, name='teacher-detail'),
+    path('teachers/create', teachers_views.teacher_create, name='teacher-create'),
+    path('teachers/<int:teacher_id>/update', teachers_views.teacher_update, name='teacher-update'),
+    path('teachers/<int:teacher_id>/password', teachers_views.teacher_update_password, name='teacher-update-password'),
+    path('teachers/<int:teacher_id>/groups', teachers_views.teacher_update_groups, name='teacher-update-groups'),
+    path('teachers/<int:teacher_id>/groups/<int:group_id>/add', teachers_views.teacher_add_to_group, name='teacher-add-to-group'),
+    path('teachers/<int:teacher_id>/groups/<int:group_id>/remove', teachers_views.teacher_remove_from_group, name='teacher-remove-from-group'),
+    path('teachers/<int:teacher_id>/delete', teachers_views.teacher_delete, name='teacher-delete'),
+    path('teachers/<int:teacher_id>/restore', teachers_views.teacher_restore, name='teacher-restore'),
 ]
