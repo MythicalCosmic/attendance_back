@@ -41,7 +41,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'main',
     'base',
-    'admins'
+    'admins',
+    'corsheaders'
 ]
 
 MIDDLEWARE = [
@@ -163,3 +164,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 TIME_ZONE = 'Asia/Tashkent'
 USE_TZ = True
+
+
+CORS_ALLOW_ALL_ORIGINS = True
